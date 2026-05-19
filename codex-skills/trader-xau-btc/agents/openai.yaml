@@ -1,0 +1,3 @@
+display_name: Trader XAU/BTC
+short_description: Intraday semi-auto workflow for XAU/USD and BTC/USD.
+default_prompt: Use this skill to analyze XAU/USD or BTC/USD, validate the setup, calculate risk, and refuse unsafe trades.

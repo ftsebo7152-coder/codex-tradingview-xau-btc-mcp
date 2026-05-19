@@ -1,129 +1,178 @@
-# Setup Guide for Claude Code
+# Setup Guide for Codex + TradingView Desktop Windows 11
 
-This file is a step-by-step guide for Claude Code (or any LLM agent) to install and configure the TradingView MCP server. If a user asks you to install or set up this project, follow these steps exactly.
+This guide is for this repository:
 
-## Step 1: Clone and Install
+```text
+https://github.com/ftsebo7152-coder/codex-tradingview-xau-btc-mcp
+```
 
-```bash
-git clone https://github.com/ulianbass/tradingview-mcp.git ~/tradingview-mcp
-cd ~/tradingview-mcp/versions/v1
+It targets Codex and TradingView Desktop on Windows 11.
+
+## 1. Clone and Install
+
+```powershell
+git clone https://github.com/ftsebo7152-coder/codex-tradingview-xau-btc-mcp.git
+cd codex-tradingview-xau-btc-mcp
 npm install
 ```
 
-If the user specifies a different install path, use that instead of `~/tradingview-mcp`.
+## 2. Configure Environment
 
-## Step 2: Set Up Rules
-
-Copy the example rules file and open it for the user to fill in:
-
-```bash
-cp ~/tradingview-mcp/versions/v1/rules.example.json ~/tradingview-mcp/versions/v1/rules.json
+```powershell
+copy .env.example .env
+notepad .env
 ```
 
-Tell the user: "Open `rules.json` and fill in your watchlist (the symbols you trade), your bias criteria (what makes something bullish/bearish for you), and your risk rules. This is what the morning brief uses every day."
+Default CDP values:
 
-## Step 3: Add to MCP Config
-
-Add the server to the user's Claude Code MCP configuration. The config file is at `~/.claude/.mcp.json` (global) or `.mcp.json` (project-level).
-
-```json
-{
-  "mcpServers": {
-    "tradingview": {
-      "command": "node",
-      "args": ["/Users/YOUR_USERNAME/tradingview-mcp/versions/v1/src/server.js"]
-    }
-  }
-}
+```text
+TRADINGVIEW_CDP_HOST=127.0.0.1
+TRADINGVIEW_CDP_PORT=9222
 ```
 
-Replace `YOUR_USERNAME` with the user's actual system username. Run `echo $USER` (Mac/Linux) or `echo %USERNAME%` (Windows) to find it.
+News/fundamentals keys are optional at first. Binance BTC public market data and RSS/manual calendar can work without keys.
 
-If the config file already exists and has other servers, merge the `tradingview` entry into the existing `mcpServers` object. Do not overwrite other servers.
+## 3. Configure Rules
 
-## Step 4: Launch TradingView Desktop
-
-TradingView Desktop must be running with Chrome DevTools Protocol enabled.
-
-**Auto-detect and launch (recommended):**
-After the MCP server is connected, use the `tv_launch` tool — it auto-detects TradingView on Mac, Windows, and Linux.
-
-**Manual launch by platform:**
-
-Mac:
-```bash
-/Applications/TradingView.app/Contents/MacOS/TradingView --remote-debugging-port=9222
+```powershell
+copy rules.xau-btc.json rules.json
 ```
 
-Windows:
-```bash
-%LOCALAPPDATA%\TradingView\TradingView.exe --remote-debugging-port=9222
+`rules.xau-btc.json` is the full XAU/USD and BTC/USD profile. It keeps sessions, asset profiles, bias criteria, risk rules and news rules.
+
+## 4. Add MCP Server To Codex
+
+Recommended:
+
+```powershell
+codex mcp add tradingview -- node .\src\server.js
 ```
 
-Linux:
-```bash
-/opt/TradingView/tradingview --remote-debugging-port=9222
-# or: tradingview --remote-debugging-port=9222
+Alternative template files:
+
+- `codex-config.example.toml` for `%USERPROFILE%\.codex\config.toml`
+- `codex-mcp.example.json` for older JSON-style MCP clients
+
+The Codex config path on Windows is usually:
+
+```text
+%USERPROFILE%\.codex\config.toml
 ```
 
-## Step 5: Restart Claude Code
+If your Codex build still uses JSON MCP configuration, use:
 
-The MCP server only loads when Claude Code starts. After adding the config:
+```text
+%USERPROFILE%\.codex\mcp.json
+```
 
-1. Exit Claude Code (Ctrl+C)
-2. Relaunch Claude Code
-3. The tradingview MCP server should connect automatically
+Do not overwrite other MCP servers. Merge entries.
 
-## Step 6: Verify Connection
+## 5. Launch TradingView Desktop With CDP
 
-Use the `tv_health_check` tool. Expected response:
+Do not use the normal desktop icon when you need Codex control. Use:
+
+```powershell
+npm run tv -- launch
+```
+
+or:
+
+```powershell
+.\scripts\launch_tv_debug.bat
+```
+
+This launches TradingView Desktop with:
+
+```text
+--remote-debugging-port=9222
+```
+
+## 6. Verify
+
+Terminal command:
+
+```powershell
+npm run tv -- status
+```
+
+Full diagnostic:
+
+```powershell
+npm run tv -- doctor
+```
+
+Codex MCP tool:
+
+```text
+tv_health_check
+```
+
+Expected:
 
 ```json
 {
   "success": true,
   "cdp_connected": true,
-  "chart_symbol": "...",
   "api_available": true
 }
 ```
 
-If `cdp_connected: false`, TradingView is not running with `--remote-debugging-port=9222`.
+## 7. Pre-Session Fundamental Context
 
-## Step 7: Run Your First Morning Brief
+Before XAU/USD New York:
 
-Ask Claude: *"Run morning_brief and give me my session bias"*
-
-Claude will scan your watchlist, read your indicators, apply your `rules.json` criteria, and print your bias for each symbol.
-
-To save it: *"Save this brief using session_save"*
-
-To retrieve tomorrow: *"Get yesterday's session using session_get"*
-
-## Step 8: Install CLI (Optional)
-
-To use the `tv` CLI command globally:
-
-```bash
-cd ~/tradingview-mcp/versions/v1
-npm link
+```text
+codex_pre_session_json asset=XAUUSD session=new_york timezone=Europe/Paris
 ```
 
-Then `tv status`, `tv quote`, `tv pine compile`, etc. work from anywhere.
+Before BTC/USD New York:
 
-## Troubleshooting
+```text
+codex_pre_session_json asset=BTCUSD session=new_york timezone=Europe/Paris includeOrderBook=true
+```
 
-| Problem | Solution |
-|---------|----------|
-| `cdp_connected: false` | Launch TradingView with `--remote-debugging-port=9222` |
-| `ECONNREFUSED` | TradingView isn't running or port 9222 is blocked |
-| MCP server not showing in Claude Code | Check `~/.claude/.mcp.json` syntax, restart Claude Code |
-| `tv` command not found | Run `npm link` from `versions/v1` |
-| Tools return stale data | TradingView may still be loading — wait a few seconds |
-| Pine Editor tools fail | Open the Pine Editor panel first (`ui_open_panel pine-editor open`) |
+If `blackout.tradeAllowed` is false, refuse new trades until the post-news stabilization window is complete.
 
-## What to Read Next
+## 8. Trading Desk Session
 
-- `rules.json` — Your personal trading rules (fill this in before using morning_brief)
-- `CLAUDE.md` — Decision tree for which tool to use when (auto-loaded by Claude Code)
-- `README.md` — Full tool reference including morning brief workflow
-- `RESEARCH.md` — Research context and open questions
+London XAU/USD:
+
+```text
+session_start asset=XAUUSD session=london mode=paper
+```
+
+New York XAU/USD:
+
+```text
+session_start asset=XAUUSD session=new_york mode=paper
+```
+
+Immediate scan:
+
+```text
+session_scan_now
+```
+
+Stop session:
+
+```text
+session_stop
+```
+
+## 9. Safety
+
+- Paper Trading first.
+- No trade without stop-loss.
+- Run `risk_calculate_position`.
+- Run `trade_validate_plan`.
+- Run `risk_guard_check`.
+- Run `news_check_blackout`.
+- Live execution always requires explicit human validation and consent-gated execution.
+
+## 10. Stability
+
+For reliable intraday operation:
+
+- keep TradingView Desktop version pinned during testing;
+- avoid auto-updating TradingView during a demo evaluation period;
+- run `npm run tv -- doctor` before each major session until setup is stable.

@@ -20,6 +20,7 @@ import { registerStreamTools } from "./tools/stream.js";
 import { registerTradingTools } from "./tools/trading.js";
 import { registerTradingExecTools } from "./tools/tradingExec.js";
 import { registerSessionTools } from "./tools/session.js";
+import { registerNewsTools } from "./tools/news.js";
 
 const server = new McpServer(
   {
@@ -164,6 +165,7 @@ registerStreamTools(server);
 registerTradingTools(server);
 registerTradingExecTools(server);
 registerSessionTools(server);
+registerNewsTools(server);
 
 // Startup notice (stderr so it doesn't interfere with MCP stdio protocol)
 process.stderr.write(

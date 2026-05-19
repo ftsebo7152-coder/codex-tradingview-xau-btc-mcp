@@ -130,4 +130,35 @@ export function registerSessionTools(server) {
       }
     },
   );
+
+  server.tool(
+    "risk_guard_check",
+    "Strict pre-trade guardrail check. Blocks trades for no SL, low R:R, excessive risk, daily drawdown, losing streak, news blackout, spread, ATR, max trades, or live mode without validation.",
+    {
+      has_stop_loss: z.coerce.boolean().default(true),
+      rr: z.coerce.number().default(0),
+      risk_pct: z.coerce.number().default(1),
+      max_risk_pct: z.coerce.number().default(1),
+      daily_loss_pct: z.coerce.number().default(0),
+      max_daily_loss_pct: z.coerce.number().default(3),
+      consecutive_losses: z.coerce.number().default(0),
+      trades_today: z.coerce.number().default(0),
+      max_trades_per_day: z.coerce.number().default(4),
+      news_blackout_active: z.coerce.boolean().default(false),
+      spread: z.coerce.number().optional(),
+      max_spread: z.coerce.number().optional(),
+      atr_state: z.enum(["normal", "too_low", "too_high", "uncontrolled"]).default("normal"),
+      mode: z.enum(["paper", "live"]).default("paper"),
+      human_validated: z.coerce.boolean().default(false),
+      score: z.coerce.number().default(0),
+      min_score: z.coerce.number().default(7),
+    },
+    async (args) => {
+      try {
+        return jsonResult(core.riskGuardCheck(args));
+      } catch (err) {
+        return jsonResult({ success: false, error: err.message }, true);
+      }
+    },
+  );
 }

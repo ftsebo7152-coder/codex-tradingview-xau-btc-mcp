@@ -27,6 +27,7 @@ import "./commands/tab.js";
 import "./commands/stream.js";
 import "./commands/morning.js";
 import "./commands/desk.js";
+import "./commands/doctor.js";
 
 // Run
 import { run } from "./router.js";

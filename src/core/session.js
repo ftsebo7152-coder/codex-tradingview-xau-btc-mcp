@@ -397,3 +397,59 @@ export function validateTradePlan({
     execution_note: "Even when allowed, call trading_detect_mode before any trading_submit_order.",
   };
 }
+
+export function riskGuardCheck({
+  has_stop_loss = true,
+  rr = 0,
+  risk_pct = 1,
+  max_risk_pct = 1,
+  daily_loss_pct = 0,
+  max_daily_loss_pct = 3,
+  consecutive_losses = 0,
+  trades_today = 0,
+  max_trades_per_day = 4,
+  news_blackout_active = false,
+  spread = null,
+  max_spread = null,
+  atr_state = "normal",
+  mode = "paper",
+  human_validated = false,
+  score = 0,
+  min_score = 7,
+} = {}) {
+  const refusals = [];
+
+  if (!has_stop_loss) refusals.push("No predefined stop-loss.");
+  if (Number(rr) < 2) refusals.push(`R:R ${Number(rr).toFixed(2)} is below minimum 1:2.`);
+  if (Number(risk_pct) > Number(max_risk_pct)) refusals.push(`Risk ${risk_pct}% exceeds max ${max_risk_pct}%.`);
+  if (Number(daily_loss_pct) >= Number(max_daily_loss_pct)) refusals.push(`Daily loss ${daily_loss_pct}% reached max ${max_daily_loss_pct}%.`);
+  if (Number(consecutive_losses) >= 2) refusals.push("Two consecutive losses: pause or require exceptional reduced-risk setup.");
+  if (Number(trades_today) >= Number(max_trades_per_day)) refusals.push(`Max trades reached: ${trades_today}/${max_trades_per_day}.`);
+  if (news_blackout_active) refusals.push("High-impact news blackout active.");
+  if (max_spread !== null && spread !== null && Number(spread) > Number(max_spread)) refusals.push(`Spread ${spread} exceeds max ${max_spread}.`);
+  if (["too_low", "too_high", "uncontrolled"].includes(String(atr_state))) refusals.push(`ATR state not tradable: ${atr_state}.`);
+  if (Number(score) < Number(min_score)) refusals.push(`Setup score ${score}/12 below minimum ${min_score}/12.`);
+  if (mode !== "paper" && !human_validated) refusals.push("Live/non-paper mode requires explicit human validation.");
+
+  return {
+    success: true,
+    trade_allowed: refusals.length === 0,
+    refusals,
+    guardrails_checked: {
+      has_stop_loss,
+      rr: Number(rr),
+      risk_pct: Number(risk_pct),
+      daily_loss_pct: Number(daily_loss_pct),
+      consecutive_losses: Number(consecutive_losses),
+      trades_today: Number(trades_today),
+      news_blackout_active: Boolean(news_blackout_active),
+      spread,
+      max_spread,
+      atr_state,
+      mode,
+      human_validated: Boolean(human_validated),
+      score: Number(score),
+      min_score: Number(min_score),
+    },
+  };
+}

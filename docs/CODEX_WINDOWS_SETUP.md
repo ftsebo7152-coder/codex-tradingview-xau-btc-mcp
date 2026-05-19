@@ -23,6 +23,8 @@ Codex connects to TradingView Desktop through Chrome DevTools Protocol (CDP), th
 
 ```powershell
 npm install
+copy .env.example .env
+copy rules.xau-btc.json rules.json
 npm run setup:codex:windows
 ```
 
@@ -44,13 +46,19 @@ or:
 .\scripts\launch_tv_debug.bat
 ```
 
-6. Test health:
+6. Test terminal status:
 
 ```powershell
-npm run tv -- health
+npm run tv -- status
 ```
 
-7. In Codex, verify that the MCP server appears and that `tv_health_check` works.
+7. Run the full diagnostic:
+
+```powershell
+npm run tv -- doctor
+```
+
+8. In Codex, verify that the MCP server appears and that `tv_health_check` works.
 
 ## Trading Desk Commands
 
@@ -83,6 +91,15 @@ To store them somewhere else, set:
 
 ```powershell
 $env:CODEX_TV_MCP_HOME="C:\Users\YourName\.codex-tradingview-xau-btc-mcp"
+```
+
+Optional news/fundamental API keys live in `.env`:
+
+```text
+FINNHUB_API_KEY=
+FRED_API_KEY=
+BRAVE_SEARCH_API_KEY=
+CRYPTOPANIC_API_KEY=
 ```
 
 ## Safety

@@ -17,6 +17,14 @@ Start a session:
 
 - `session_start`
 
+Pre-session fundamentals:
+
+- `codex_pre_session_json`
+- `news_check_blackout`
+- `fundamental_build_context`
+- `btc_get_market_context`
+- `macro_get_fred_context`
+
 Scan during a session:
 
 - `session_scan_now`
@@ -25,6 +33,7 @@ Risk and validation:
 
 - `risk_calculate_position`
 - `trade_validate_plan`
+- `risk_guard_check`
 
 Chart context:
 
@@ -82,3 +91,5 @@ When a setup is tradable, output a full plan with:
 - score;
 - invalidation;
 - execution permission status.
+
+Before any trade plan becomes executable, run news/fundamental context and risk guard checks. If `blackout.tradeAllowed` is false or `risk_guard_check.trade_allowed` is false, refuse the trade.
