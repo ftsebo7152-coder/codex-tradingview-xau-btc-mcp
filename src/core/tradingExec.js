@@ -154,12 +154,20 @@ async function getOrderDialogInfo() {
           || document.querySelector('[class*="orderDialog"]');
         if (!dialog || dialog.offsetParent === null) return { open: false };
         var text = (dialog.textContent || '').replace(/\\s+/g, ' ').trim();
+        var buttons = Array.prototype.slice.call(dialog.querySelectorAll('button, [role="button"]'));
+        var submit = buttons
+          .map(function(btn) { return (btn.textContent || '').replace(/\\s+/g, ' ').trim(); })
+          .filter(function(txt) { return /\\b(buy|sell)\\b/i.test(txt) && /\\b(market|limit|stop)\\b/i.test(txt); })
+          .pop() || '';
         return {
           open: true,
           data_name: dialog.getAttribute('data-name') || null,
           text: text.substring(0, 700),
+          submit_text: submit.substring(0, 120),
           has_buy: /\\bbuy\\b/i.test(text),
-          has_sell: /\\bsell\\b/i.test(text)
+          has_sell: /\\bsell\\b/i.test(text),
+          submit_is_buy: /^buy\\b/i.test(submit),
+          submit_is_sell: /^sell\\b/i.test(submit)
         };
       } catch(e) { return { open: false, error: e.message }; }
     })()
@@ -173,10 +181,10 @@ async function closeOrderDialogIfOpen({ side } = {}) {
   const lowerSide = side === 'buy' || side === 'sell' ? side : null;
   const opposingSide =
     lowerSide === 'buy'
-      ? info.has_sell && !info.has_buy
+      ? info.submit_is_sell || (info.has_sell && !info.has_buy)
       : lowerSide === 'sell'
-        ? info.has_buy && !info.has_sell
-        : false;
+        ? info.submit_is_buy || (info.has_buy && !info.has_sell)
+        : true;
 
   if (!opposingSide) {
     return { closed: false, reason: 'reuse_existing_dialog', info };
@@ -338,7 +346,13 @@ async function ensureTradingPanelOpen() {
  */
 async function openOrderDialog({ side }) {
   const existing = await getOrderDialogInfo();
-  if (existing?.open) return { method: 'existing_dialog', existing };
+  if (existing?.open) {
+    const rightSide =
+      side === 'buy'
+        ? existing.submit_is_buy || (existing.has_buy && !existing.submit_is_sell)
+        : existing.submit_is_sell || (existing.has_sell && !existing.submit_is_buy);
+    if (rightSide) return { method: 'existing_dialog', existing };
+  }
 
   // Strategy 1: keyboard shortcut (doesn't work on all builds, but try first)
   const client = await getClient();
@@ -361,7 +375,15 @@ async function openOrderDialog({ side }) {
     },
     { timeout: 1200, pollMin: 100, pollMax: 300 },
   );
-  if (dialogOpened.ok) return { method: 'keyboard' };
+  if (dialogOpened.ok) {
+    const keyboardDialog = await getOrderDialogInfo();
+    const rightSide =
+      side === 'buy'
+        ? keyboardDialog.submit_is_buy || (keyboardDialog.has_buy && !keyboardDialog.submit_is_sell)
+        : keyboardDialog.submit_is_sell || (keyboardDialog.has_sell && !keyboardDialog.submit_is_buy);
+    if (rightSide) return { method: 'keyboard', existing: keyboardDialog };
+    await closeOrderDialogIfOpen({ side });
+  }
 
   // Strategy 2: click the buy/sell order button — these open a confirm
   // dialog in most broker integrations.
