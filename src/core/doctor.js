@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import http from "node:http";
 import { healthCheck } from "./health.js";
@@ -20,6 +20,81 @@ function commandExists(command) {
   } catch {
     return false;
   }
+}
+
+function codexCliCandidates() {
+  const localAppData = process.env.LOCALAPPDATA || "";
+  const appDataCli = join(localAppData, "OpenAI", "Codex", "bin", "codex.exe");
+  return [
+    process.env.CODEX_CLI_PATH,
+    appDataCli,
+    "codex",
+  ].filter(Boolean);
+}
+
+function codexHomeCandidates() {
+  const userProfile = process.env.USERPROFILE || process.env.HOME || "";
+  return [
+    process.env.CODEX_HOME,
+    userProfile ? join(userProfile, ".codex") : null,
+  ].filter(Boolean);
+}
+
+function configHasTradingViewMcp(codexHome) {
+  const configPath = join(codexHome, "config.toml");
+  if (!existsSync(configPath)) return null;
+  const content = readFileSync(configPath, "utf8");
+  return /\[mcp_servers\.tradingview\]/i.test(content)
+    ? { ok: true, source: "config_toml", config_path: configPath }
+    : { ok: false, source: "config_toml", config_path: configPath };
+}
+
+function detectCodexCli() {
+  for (const cli of codexCliCandidates()) {
+    try {
+      const env = { ...process.env };
+      if (cli !== "codex") {
+        env.PATH = `${dirname(cli)};${env.PATH || ""}`;
+      }
+      const output = execFileSync(cli, ["--version"], { timeout: 7000, env }).toString().trim();
+      return { ok: true, command: cli, version: output };
+    } catch {}
+  }
+  return { ok: false };
+}
+
+function detectMcpRegistered() {
+  const cli = detectCodexCli();
+  for (const codexHome of codexHomeCandidates()) {
+    if (cli.ok) {
+      try {
+        const env = { ...process.env, CODEX_HOME: codexHome };
+        if (cli.command !== "codex") {
+          env.PATH = `${dirname(cli.command)};${env.PATH || ""}`;
+        }
+        const output = execFileSync(cli.command, ["mcp", "list"], { timeout: 10000, env }).toString();
+        if (/tradingview/i.test(output)) {
+          return ok("mcp_registered", {
+            source: "codex_cli",
+            codex_cli: cli.command,
+            codex_home: codexHome,
+            output: output.trim(),
+          });
+        }
+      } catch {}
+    }
+
+    const config = configHasTradingViewMcp(codexHome);
+    if (config?.ok) {
+      return ok("mcp_registered", {
+        ...config,
+        codex_home: codexHome,
+        note: "Verified directly from config.toml because the WindowsApps codex launcher can be inaccessible from shell.",
+      });
+    }
+  }
+
+  return fail("mcp_registered", "No tradingview MCP entry found via Codex CLI or config.toml");
 }
 
 function cdpVersion(host, port) {
@@ -75,14 +150,9 @@ export async function runDoctor({ host = process.env.TRADINGVIEW_CDP_HOST || "12
   checks.push(ok("node_version", { version: process.version, supported: Number(process.versions.node.split(".")[0]) >= 18 }));
   checks.push(existsSync(join(process.cwd(), "node_modules")) ? ok("npm_install", { node_modules: true }) : fail("npm_install", "node_modules missing; run npm install"));
   checks.push(existsSync(join(process.cwd(), "rules.json")) || existsSync(join(process.cwd(), "rules.xau-btc.json")) ? ok("rules_file") : fail("rules_file", "No rules.json or rules.xau-btc.json found"));
-  checks.push(commandExists("codex") ? ok("codex_cli") : fail("codex_cli", "Codex CLI not found in PATH"));
-
-  try {
-    const out = execSync("codex mcp list", { timeout: 7000, shell: true }).toString();
-    checks.push(/tradingview/i.test(out) ? ok("mcp_registered", { output: out.trim() }) : fail("mcp_registered", "No tradingview MCP entry found", { output: out.trim() }));
-  } catch (err) {
-    checks.push(fail("mcp_registered", err));
-  }
+  const codexCli = detectCodexCli();
+  checks.push(codexCli.ok ? ok("codex_cli", codexCli) : commandExists("codex") ? ok("codex_cli") : fail("codex_cli", "Codex CLI not found"));
+  checks.push(detectMcpRegistered());
 
   const candidates = tradingViewInstallCandidates();
   const foundPath = candidates.find((p) => existsSync(p));
