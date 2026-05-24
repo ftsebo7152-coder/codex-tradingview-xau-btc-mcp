@@ -64,9 +64,15 @@ export async function tradeSnapshot({ ohlcv_count = 20, include_positions = true
         // widget.resolution() is on the PUBLIC wrapper, not the internal
         // _chartWidget — callers of tradeSnapshot need the current TF so
         // they can sanity-check bar context.
+        var publicResolution = null;
+        var seriesInterval = null;
+        try { publicResolution = (typeof widget.resolution === 'function') ? widget.resolution() : null; } catch(e) {}
+        try { seriesInterval = mainSeries && mainSeries.interval ? mainSeries.interval() : null; } catch(e2) {}
         out.chart = {
           symbol: (si && si.name) || null,
-          resolution: (typeof widget.resolution === 'function') ? widget.resolution() : null,
+          resolution: publicResolution || seriesInterval || null,
+          public_resolution: publicResolution,
+          series_interval: seriesInterval,
           last_index: lastIdx,
           pricescale: (si && si.pricescale) || 100,
           minmov: (si && si.minmov) || 1
@@ -183,6 +189,10 @@ export async function tradeSnapshot({ ohlcv_count = 20, include_positions = true
               var txt = (cells[c].textContent || '').trim();
               if (c < columns.length) labeled[columns[c]] = txt;
               if (txt) any = true;
+            }
+            if (any) {
+              var joined = Object.keys(labeled).map(function(k) { return labeled[k]; }).concat(Array.prototype.map.call(cells, function(cell) { return (cell.textContent || '').trim(); })).join(' ').toLowerCase();
+              if (/\\b(filled|cancelled|canceled|rejected|expired)\\b/.test(joined)) continue;
             }
             if (any) items.push(labeled);
           }

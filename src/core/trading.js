@@ -23,6 +23,14 @@ import { evaluate } from '../connection.js';
 import { Selectors } from '../selectors.js';
 import { sleep } from '../await.js';
 
+export function isTerminalOrderRow(rawCells = [], cells = {}) {
+  const text = [
+    ...Object.values(cells || {}),
+    ...(Array.isArray(rawCells) ? rawCells : []),
+  ].join(' ').toLowerCase();
+  return /\b(filled|cancelled|canceled|rejected|expired)\b/.test(text);
+}
+
 /**
  * Ensure the bottom Account Manager panel is expanded so the
  * positions/orders tables are present in the DOM.
@@ -168,6 +176,10 @@ async function scrapeTable(tableSelectors, kind) {
             if (c < columns.length) labeled[columns[c]] = txt;
           }
           if (cellTexts.every(function(t) { return !t; })) continue;
+          if ('${kind}' === 'orders') {
+            var rowText = Object.keys(labeled).map(function(k) { return labeled[k]; }).concat(cellTexts).join(' ').toLowerCase();
+            if (/\\b(filled|cancelled|canceled|rejected|expired)\\b/.test(rowText)) continue;
+          }
           positions.push({ raw_cells: cellTexts, cells: labeled });
         } catch (ex) {
           errors.push({ row: r, message: ex.message });

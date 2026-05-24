@@ -47,12 +47,35 @@ export async function setTimeframe({ timeframe }) {
   const escaped = escapeJsString(timeframe);
   await evaluate(`${CHART_API}.setResolution('${escaped}', {})`);
   const ready = await waitForChart({ expectedResolution: timeframe });
+  await sleep(250);
+  const verification = await evaluate(`
+    (function() {
+      try {
+        var chart = ${CHART_API};
+        var chartWidget = chart._chartWidget || null;
+        var model = chartWidget && chartWidget.model ? chartWidget.model() : null;
+        var mainSeries = model && model.mainSeries ? model.mainSeries() : null;
+        var publicResolution = null;
+        var internalResolution = null;
+        var seriesInterval = null;
+        try { publicResolution = chart.resolution(); } catch(e) {}
+        try { internalResolution = chartWidget && chartWidget.activeChart ? chartWidget.activeChart().resolution() : null; } catch(e2) {}
+        try { seriesInterval = mainSeries && mainSeries.interval ? mainSeries.interval() : null; } catch(e3) {}
+        var actual = publicResolution || internalResolution || seriesInterval || null;
+        return { public_resolution: publicResolution, internal_resolution: internalResolution, series_interval: seriesInterval, actual_resolution: actual };
+      } catch(e) { return { error: e.message, actual_resolution: null }; }
+    })()
+  `);
+  const actual = verification?.actual_resolution == null ? null : String(verification.actual_resolution);
+  const verified = actual === String(timeframe);
   return {
-    success: ready.ok,
+    success: ready.ok && verified,
     timeframe,
+    actual_timeframe: actual,
+    verification,
     chart_ready: ready.ok,
     elapsed_ms: ready.elapsed_ms,
-    code: ready.ok ? undefined : ready.code,
+    code: ready.ok && verified ? undefined : (ready.code || ErrorCodes.TIMEOUT_WAITING_FOR_CHART),
   };
 }
 
