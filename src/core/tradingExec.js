@@ -556,11 +556,11 @@ export async function closePosition({ consent, position_id } = {}) {
     (function() {
       try {
         var target = '${escapedId}';
-        var rows = document.querySelectorAll('[data-name="positions"] [class*="row"], [class*="positions-list"] [class*="row"]');
+        var rows = document.querySelectorAll('[data-name$=".positions-table"] tr, [data-name$=".positions-table"] [class*="row"], [data-name="positions"] [class*="row"], [class*="positions-list"] [class*="row"]');
         for (var i = 0; i < rows.length; i++) {
           var row = rows[i];
           if ((row.textContent || '').indexOf(target) === -1) continue;
-          var closeBtn = row.querySelector('[data-name="close-position-button"], [aria-label*="Close"], [aria-label*="Cerrar"], button[class*="close"]');
+          var closeBtn = row.querySelector('[data-name="close-position-button"], [data-name="close-settings-cell-button"], [aria-label*="Close"], [aria-label*="Cerrar"], [title*="Close"], button[class*="close"]');
           if (closeBtn) { closeBtn.click(); return { ok: true, clicked: true }; }
         }
         return { ok: false, error: 'position row not found or no close button' };
@@ -573,5 +573,33 @@ export async function closePosition({ consent, position_id } = {}) {
     err.details = result;
     throw err;
   }
-  return { success: true, mode: mode.mode, position_id, ...result };
+
+  await sleep(400);
+
+  const confirmed = await evaluate(`
+    (function() {
+      try {
+        var dialog = document.querySelector('[data-name="trading-partial-closing-dialog"]')
+          || document.querySelector('[class*="partial-closing"]')
+          || document.querySelector('[class*="closing-dialog"]');
+        if (!dialog) return { ok: true, confirmation_required: false };
+        var submit = dialog.querySelector('[data-name="submit-button"]')
+          || Array.prototype.slice.call(dialog.querySelectorAll('button')).find(function(btn) {
+            return /close position|close|cerrar/i.test((btn.textContent || '').trim());
+          });
+        if (!submit) return { ok: false, error: 'close confirmation button not found' };
+        if (submit.disabled) return { ok: false, error: 'close confirmation button disabled' };
+        submit.click();
+        return { ok: true, confirmation_required: true, confirmed: true };
+      } catch(e) { return { ok: false, error: e.message }; }
+    })()
+  `);
+  if (!confirmed?.ok) {
+    const err = new Error(`Failed to confirm close position: ${confirmed?.error || 'unknown'}`);
+    err.code = ErrorCodes.ELEMENT_NOT_CLICKABLE;
+    err.details = confirmed;
+    throw err;
+  }
+
+  return { success: true, mode: mode.mode, position_id, ...result, confirmation: confirmed };
 }
