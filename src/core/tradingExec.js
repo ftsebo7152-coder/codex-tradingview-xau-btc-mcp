@@ -28,6 +28,12 @@ import { sleep, waitForCondition } from '../await.js';
 import { escapeJsString, validateNumber } from '../sanitize.js';
 import { ErrorCodes } from '../errors.js';
 
+const QUANTITY_RULES = [
+  { pattern: /BTC(USD|USDT)?/i, step: 0.0001, decimals: 4 },
+  { pattern: /ETH(USD|USDT)?/i, step: 0.001, decimals: 3 },
+  { pattern: /XAU(USD)?|GOLD/i, step: 0.01, decimals: 2 },
+];
+
 /**
  * Refuses to proceed unless the caller has explicitly asserted consent.
  * Exported so tool wrappers can share the exact same gate.
@@ -40,6 +46,130 @@ export function requireConsent(consent, operation) {
     err.code = ErrorCodes.INVALID_INPUT;
     throw err;
   }
+}
+
+async function getActiveTradingSymbol() {
+  const result = await evaluate(`
+    (function() {
+      try {
+        var symbol = '';
+        try {
+          var chart = window.tvWidget?.activeChart?.()
+            || window.TradingViewApi?.activeChart?.()
+            || window.tvWidget?.chart?.();
+          if (chart) {
+            try { symbol = chart.symbol(); } catch(e) {}
+            if (!symbol && chart.symbolExt) {
+              try { symbol = chart.symbolExt().symbol || ''; } catch(e2) {}
+            }
+          }
+        } catch(e3) {}
+        if (!symbol) {
+          var title = document.querySelector('[data-symbol-full], [data-name="legend-source-title"], [aria-label*="/"]');
+          symbol = title?.getAttribute?.('data-symbol-full') || title?.textContent || '';
+        }
+        return String(symbol || '').trim();
+      } catch(e) { return ''; }
+    })()
+  `);
+  return result || '';
+}
+
+function getQuantityRule(symbol = '') {
+  return QUANTITY_RULES.find((rule) => rule.pattern.test(symbol)) || null;
+}
+
+export function normalizeQuantityForSymbol(quantity, symbol = '') {
+  const qty = validateNumber(quantity, 'quantity');
+  const rule = getQuantityRule(symbol);
+  if (!rule) {
+    return {
+      quantity: qty,
+      requested_quantity: qty,
+      adjusted: false,
+      symbol,
+      step: null,
+      decimals: null,
+    };
+  }
+
+  // Round to the nearest valid step. If rounding would become zero, round up
+  // to one step so tiny paper-trading tests do not create a disabled ticket.
+  let rounded = Math.round(qty / rule.step) * rule.step;
+  if (rounded <= 0) rounded = rule.step;
+  rounded = Number(rounded.toFixed(rule.decimals));
+
+  return {
+    quantity: rounded,
+    requested_quantity: qty,
+    adjusted: Math.abs(rounded - qty) > Number.EPSILON,
+    symbol,
+    step: rule.step,
+    decimals: rule.decimals,
+  };
+}
+
+async function getOrderDialogInfo() {
+  return evaluate(`
+    (function() {
+      try {
+        var dialog = document.querySelector('[data-name="order-dialog"]')
+          || document.querySelector('[data-name="order-dialog-popup"]')
+          || document.querySelector('[data-dialog-name*="order"]')
+          || document.querySelector('[class*="orderDialog"]');
+        if (!dialog || dialog.offsetParent === null) return { open: false };
+        var text = (dialog.textContent || '').replace(/\\s+/g, ' ').trim();
+        return {
+          open: true,
+          data_name: dialog.getAttribute('data-name') || null,
+          text: text.substring(0, 700),
+          has_buy: /\\bbuy\\b/i.test(text),
+          has_sell: /\\bsell\\b/i.test(text)
+        };
+      } catch(e) { return { open: false, error: e.message }; }
+    })()
+  `);
+}
+
+async function closeOrderDialogIfOpen({ side } = {}) {
+  const info = await getOrderDialogInfo();
+  if (!info?.open) return { closed: false, reason: 'not_open' };
+
+  const lowerSide = side === 'buy' || side === 'sell' ? side : null;
+  const opposingSide =
+    lowerSide === 'buy'
+      ? info.has_sell && !info.has_buy
+      : lowerSide === 'sell'
+        ? info.has_buy && !info.has_sell
+        : false;
+
+  if (!opposingSide) {
+    return { closed: false, reason: 'reuse_existing_dialog', info };
+  }
+
+  const clicked = await evaluate(`
+    (function() {
+      try {
+        var dialog = document.querySelector('[data-name="order-dialog"]')
+          || document.querySelector('[data-name="order-dialog-popup"]')
+          || document.querySelector('[class*="orderDialog"]');
+        if (!dialog) return { ok: false, error: 'dialog not found' };
+        var buttons = dialog.querySelectorAll('button, [role="button"]');
+        for (var i = 0; i < buttons.length; i++) {
+          var aria = buttons[i].getAttribute('aria-label') || '';
+          var title = buttons[i].getAttribute('title') || '';
+          if (/close/i.test(aria) || /close/i.test(title)) {
+            buttons[i].click();
+            return { ok: true, method: 'close_button' };
+          }
+        }
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+        return { ok: true, method: 'escape' };
+      } catch(e) { return { ok: false, error: e.message }; }
+    })()
+  `);
+  await sleep(250);
+  return { closed: !!clicked?.ok, reason: 'opposing_side_dialog', info, clicked };
 }
 
 /**
@@ -88,9 +218,18 @@ export async function detectTradingMode() {
 async function ensureTradingPanelOpen() {
   const isOpen = await evaluate(`
     (function() {
+      var dialog = document.querySelector('[data-name="order-dialog"]')
+        || document.querySelector('[data-name="order-dialog-popup"]')
+        || document.querySelector('[class*="orderDialog"]');
+      if (dialog && dialog.offsetParent !== null) return true;
       var bottom = document.querySelector('[class*="layout__area--bottom"]');
+      if (!bottom) {
+        bottom = Array.prototype.slice.call(document.querySelectorAll('div, section')).find(function(el) {
+          return el.offsetHeight > 80 && /paper trading|positions|orders/i.test(el.textContent || '');
+        });
+      }
       if (!bottom) return false;
-      if (bottom.offsetHeight < 100) return false;
+      if (bottom.offsetHeight < 80) return false;
       var selectors = [
         '[data-name="trading-panel"]',
         '[class*="accountManager"]',
@@ -103,6 +242,7 @@ async function ensureTradingPanelOpen() {
         var tp = document.querySelector(selectors[i]);
         if (tp && tp.offsetHeight > 50) return true;
       }
+      if (/paper trading|positions|orders/i.test(bottom.textContent || '')) return true;
       return false;
     })()
   `);
@@ -122,6 +262,10 @@ async function ensureTradingPanelOpen() {
     async () => {
       return evaluate(`
         (function() {
+          var dialog = document.querySelector('[data-name="order-dialog"]')
+            || document.querySelector('[data-name="order-dialog-popup"]')
+            || document.querySelector('[class*="orderDialog"]');
+          if (dialog && dialog.offsetParent !== null) return true;
           var selectors = [
             '[data-name="trading-panel"]',
             '[class*="accountManager"]',
@@ -133,6 +277,10 @@ async function ensureTradingPanelOpen() {
           for (var i = 0; i < selectors.length; i++) {
             var tp = document.querySelector(selectors[i]);
             if (tp && tp.offsetHeight > 50) return true;
+          }
+          var areas = document.querySelectorAll('div, section');
+          for (var j = 0; j < areas.length; j++) {
+            if (areas[j].offsetHeight > 80 && /paper trading|positions|orders/i.test(areas[j].textContent || '')) return true;
           }
           return false;
         })()
@@ -154,6 +302,9 @@ async function ensureTradingPanelOpen() {
  *   2. Click the buy/sell-order-button which opens the dialog
  */
 async function openOrderDialog({ side }) {
+  const existing = await getOrderDialogInfo();
+  if (existing?.open) return { method: 'existing_dialog', existing };
+
   // Strategy 1: keyboard shortcut (doesn't work on all builds, but try first)
   const client = await getClient();
   try {
@@ -183,6 +334,15 @@ async function openOrderDialog({ side }) {
   const clicked = await evaluate(`
     (function() {
       var btn = document.querySelector('[data-name="${sideButton}"]');
+      if (!btn) {
+        var sideText = '${side}' === 'buy' ? /\\bbuy\\b/i : /\\bsell\\b/i;
+        var candidates = Array.prototype.slice.call(document.querySelectorAll('button, [role="button"], [data-name*="button"]'));
+        btn = candidates.find(function(candidate) {
+          if (candidate.offsetParent === null) return false;
+          var txt = candidate.textContent || candidate.getAttribute('aria-label') || '';
+          return sideText.test(txt) && !/strong|technical|seasonal|more/i.test(txt);
+        });
+      }
       if (!btn) return false;
       btn.click();
       return true;
@@ -257,6 +417,7 @@ async function selectOrderType(orderType) {
 async function setDialogField(fieldPattern, value) {
   const pattern = escapeJsString(fieldPattern);
   const val = validateNumber(value, fieldPattern);
+  const strVal = escapeJsString(String(val));
   return evaluate(`
     (function() {
       try {
@@ -282,10 +443,12 @@ async function setDialogField(fieldPattern, value) {
           var matched = labels.some(function(l) { return pattern.test(l); });
           if (matched) {
             var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-            setter.call(inp, String(${val}));
+            setter.call(inp, '${strVal}');
             inp.dispatchEvent(new Event('input', { bubbles: true }));
             inp.dispatchEvent(new Event('change', { bubbles: true }));
-            return { ok: true, field: labels.find(function(l) { return l; }) || 'unknown' };
+            inp.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
+            inp.blur();
+            return { ok: true, field: labels.find(function(l) { return l; }) || 'unknown', value: inp.value };
           }
         }
         if (dialog.getAttribute('data-name') === 'order-dialog-popup') {
@@ -303,7 +466,11 @@ async function setDialogField(fieldPattern, value) {
           if (/qty|quantity|cantidad/.test(field)) {
             targetInput = visibleInputs.find(function(candidate) {
               var cls = (candidate.className || '').toString();
-              return cls.indexOf('priceInput') === -1 && cls.indexOf('input-uv5obCI0') === -1 && (candidate.value || '').trim() !== '';
+              var rect = candidate.getBoundingClientRect();
+              return cls.indexOf('priceInput') === -1
+                && cls.indexOf('input-uv5obCI0') === -1
+                && rect.width > 30
+                && rect.height > 10;
             });
           } else if (/^price|precio/.test(field)) {
             targetInput = priceInputs[0] || visibleInputs[0];
@@ -314,11 +481,13 @@ async function setDialogField(fieldPattern, value) {
           }
           if (targetInput) {
             var fallbackSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-            fallbackSetter.call(targetInput, String(${val}));
+            targetInput.focus();
+            fallbackSetter.call(targetInput, '${strVal}');
             targetInput.dispatchEvent(new Event('input', { bubbles: true }));
             targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+            targetInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
             targetInput.blur();
-            return { ok: true, field: 'order-dialog-popup fallback' };
+            return { ok: true, field: 'order-dialog-popup fallback', value: targetInput.value };
           }
         }
         return { ok: false, error: 'field not found', tried: inputs.length };
@@ -339,13 +508,14 @@ async function submitOrderDialog() {
           || document.querySelector('[data-name="order-dialog-popup"]')
           || document.querySelector('[class*="orderDialog"]');
         if (!dialog) return { ok: false, error: 'dialog not open' };
-        var btns = dialog.querySelectorAll('button[data-name="submit"], button[type="submit"], button');
+        var btns = dialog.querySelectorAll('[data-name="submit-button"], button[data-name="submit"], button[type="submit"], button, [role="button"]');
         var submitKeywords = /^(place|create|buy|sell|submit|comprar|vender|crear|enviar)/i;
         for (var i = 0; i < btns.length; i++) {
           var b = btns[i];
+          if (b.offsetParent === null) continue;
           var txt = (b.textContent || '').trim();
           var dn = (b.getAttribute('data-name') || '');
-          if (dn === 'submit' || submitKeywords.test(txt)) {
+          if (dn === 'submit' || dn === 'submit-button' || submitKeywords.test(txt)) {
             if (b.disabled) return { ok: false, error: 'submit button disabled', text: txt };
             b.click();
             return { ok: true, clicked_text: txt.substring(0, 40) };
@@ -398,8 +568,8 @@ export async function submitOrder(opts = {}) {
     err.code = ErrorCodes.INVALID_INPUT;
     throw err;
   }
-  const qty = validateNumber(quantity, 'quantity');
-  if (qty <= 0) {
+  const requestedQty = validateNumber(quantity, 'quantity');
+  if (requestedQty <= 0) {
     const err = new Error('quantity must be positive');
     err.code = ErrorCodes.INVALID_INPUT;
     throw err;
@@ -414,6 +584,10 @@ export async function submitOrder(opts = {}) {
     err.code = ErrorCodes.INVALID_INPUT;
     throw err;
   }
+
+  const activeSymbol = await getActiveTradingSymbol();
+  const quantityRule = normalizeQuantityForSymbol(requestedQty, activeSymbol);
+  const qty = quantityRule.quantity;
 
   const mode = await detectTradingMode();
   if (mode.mode === 'not_connected') {
@@ -432,6 +606,7 @@ export async function submitOrder(opts = {}) {
     throw err;
   }
 
+  const staleDialog = await closeOrderDialogIfOpen({ side });
   const opened = await openOrderDialog({ side });
   const selectedOrderType = await selectOrderType(order_type);
 
@@ -486,10 +661,13 @@ export async function submitOrder(opts = {}) {
     side,
     order_type,
     quantity: qty,
+    requested_quantity: requestedQty,
+    quantity_rule: quantityRule,
     limit_price: limit_price ?? null,
     stop_price: stop_price ?? null,
     take_profit: take_profit ?? null,
     stop_loss: stop_loss ?? null,
+    stale_dialog: staleDialog,
     dialog_method: opened.method,
     selected_order_type: selectedOrderType,
     fill_results: fillResults,
