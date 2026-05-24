@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeQuantityForSymbol } from '../src/core/tradingExec.js';
+import { normalizeQuantityForSymbol, scoreOrderSubmitCandidate } from '../src/core/tradingExec.js';
 
 test('normalizes BTCUSDT quantity to TradingView paper step', () => {
   const result = normalizeQuantityForSymbol(0.000781, 'BINANCE:BTCUSDT');
@@ -23,4 +23,37 @@ test('leaves unknown symbols untouched', () => {
   assert.equal(result.quantity, 12.34567);
   assert.equal(result.step, null);
   assert.equal(result.adjusted, false);
+});
+
+test('rejects quote price buttons as order submit candidates', () => {
+  const result = scoreOrderSubmitCandidate({
+    text: 'Sell76,497.13',
+    side: 'buy',
+    orderType: 'market',
+    symbol: 'BINANCE:BTCUSDT',
+  });
+
+  assert.equal(result.score, -1);
+  assert.equal(result.reason, 'quote_price_button');
+});
+
+test('scores the real TradingView order-ticket submit button above quote buttons', () => {
+  const quote = scoreOrderSubmitCandidate({
+    text: 'Sell76,497.13',
+    side: 'buy',
+    orderType: 'market',
+    symbol: 'BINANCE:BTCUSDT',
+    y: 210,
+  });
+  const submit = scoreOrderSubmitCandidate({
+    text: 'Buy 0.0006 BTCUSDT MARKET',
+    dataName: 'submit-button',
+    side: 'buy',
+    orderType: 'market',
+    symbol: 'BINANCE:BTCUSDT',
+    y: 707,
+  });
+
+  assert.equal(quote.score, -1);
+  assert.ok(submit.score > 100);
 });

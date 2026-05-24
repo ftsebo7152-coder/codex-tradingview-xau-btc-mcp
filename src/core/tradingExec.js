@@ -109,6 +109,34 @@ export function normalizeQuantityForSymbol(quantity, symbol = '') {
   };
 }
 
+export function scoreOrderSubmitCandidate({ text = '', dataName = '', side = '', orderType = '', symbol = '', y = 0 } = {}) {
+  const txt = String(text || '').replace(/\s+/g, ' ').trim();
+  const dn = String(dataName || '');
+  const lower = txt.toLowerCase();
+  const sideWord = side === 'sell' ? 'sell' : 'buy';
+  const symbolBase = String(symbol || '').split(':').pop().toLowerCase();
+  const symbolRoot = symbolBase.replace(/[^a-z0-9]/g, '');
+
+  if (!txt && !dn) return { score: -1, reason: 'empty' };
+  if (/^(sell|buy)\s*[\d.,]+$/i.test(txt)) {
+    return { score: -1, reason: 'quote_price_button' };
+  }
+  if (/\b(strong\s+buy|strong\s+sell|technical|seasonal|more)\b/i.test(txt)) {
+    return { score: -1, reason: 'non_trading_widget_button' };
+  }
+
+  let score = 0;
+  if (dn === 'submit' || dn === 'submit-button') score += 40;
+  if (lower.includes(sideWord)) score += 35;
+  if (orderType && lower.includes(orderType)) score += 25;
+  if (symbolRoot && lower.replace(/[^a-z0-9]/g, '').includes(symbolRoot)) score += 25;
+  if (/\b(place|create|submit|send|comprar|vender|crear|enviar)\b/i.test(txt)) score += 20;
+  if (/\d/.test(txt) && /\b(market|limit|stop)\b/i.test(txt)) score += 15;
+  score += Math.min(20, Math.max(0, Number(y) || 0) / 80);
+
+  return { score, reason: 'candidate' };
+}
+
 async function getOrderDialogInfo() {
   return evaluate(`
     (function() {
@@ -500,7 +528,11 @@ async function setDialogField(fieldPattern, value) {
  * Submit the Order Dialog by clicking "Place Order" / "Create" / "Buy"
  * / "Sell" (the exact text varies by broker and language).
  */
-async function submitOrderDialog() {
+async function submitOrderDialog({ side, orderType, quantity, symbol } = {}) {
+  const escapedSide = escapeJsString(side || '');
+  const escapedOrderType = escapeJsString(orderType || '');
+  const escapedSymbol = escapeJsString(symbol || '');
+  const escapedQuantity = escapeJsString(String(quantity ?? ''));
   return evaluate(`
     (function() {
       try {
@@ -509,19 +541,52 @@ async function submitOrderDialog() {
           || document.querySelector('[class*="orderDialog"]');
         if (!dialog) return { ok: false, error: 'dialog not open' };
         var btns = dialog.querySelectorAll('[data-name="submit-button"], button[data-name="submit"], button[type="submit"], button, [role="button"]');
-        var submitKeywords = /^(place|create|buy|sell|submit|comprar|vender|crear|enviar)/i;
+        var side = '${escapedSide}';
+        var orderType = '${escapedOrderType}';
+        var symbol = '${escapedSymbol}'.split(':').pop().toLowerCase().replace(/[^a-z0-9]/g, '');
+        var qty = '${escapedQuantity}';
+        var sideWord = side === 'sell' ? 'sell' : 'buy';
+        function scoreButton(btn) {
+          var txt = (btn.textContent || '').replace(/\\s+/g, ' ').trim();
+          var dn = (btn.getAttribute('data-name') || '');
+          var lower = txt.toLowerCase();
+          var compact = lower.replace(/[^a-z0-9]/g, '');
+          if (!txt && !dn) return { score: -1, reason: 'empty', text: txt, data_name: dn };
+          if (/^(sell|buy)\\s*[\\d.,]+$/i.test(txt)) return { score: -1, reason: 'quote_price_button', text: txt, data_name: dn };
+          if (/\\b(strong\\s+buy|strong\\s+sell|technical|seasonal|more)\\b/i.test(txt)) return { score: -1, reason: 'non_trading_widget_button', text: txt, data_name: dn };
+          var rect = btn.getBoundingClientRect();
+          var score = 0;
+          if (dn === 'submit' || dn === 'submit-button') score += 40;
+          if (lower.indexOf(sideWord) !== -1) score += 35;
+          if (orderType && lower.indexOf(orderType) !== -1) score += 25;
+          if (symbol && compact.indexOf(symbol) !== -1) score += 25;
+          if (qty && lower.indexOf(qty) !== -1) score += 10;
+          if (/\\b(place|create|submit|send|comprar|vender|crear|enviar)\\b/i.test(txt)) score += 20;
+          if (/\\d/.test(txt) && /\\b(market|limit|stop)\\b/i.test(txt)) score += 15;
+          score += Math.min(20, Math.max(0, rect.y || 0) / 80);
+          return { score: score, reason: 'candidate', text: txt, data_name: dn, y: rect.y, disabled: !!btn.disabled };
+        }
+        var candidates = [];
+        var best = null;
         for (var i = 0; i < btns.length; i++) {
           var b = btns[i];
           if (b.offsetParent === null) continue;
-          var txt = (b.textContent || '').trim();
-          var dn = (b.getAttribute('data-name') || '');
-          if (dn === 'submit' || dn === 'submit-button' || submitKeywords.test(txt)) {
-            if (b.disabled) return { ok: false, error: 'submit button disabled', text: txt };
-            b.click();
-            return { ok: true, clicked_text: txt.substring(0, 40) };
-          }
+          var candidate = scoreButton(b);
+          candidates.push(candidate);
+          if (candidate.score < 30) continue;
+          if (!best || candidate.score > best.meta.score) best = { button: b, meta: candidate };
         }
-        return { ok: false, error: 'submit button not found' };
+        candidates.sort(function(a, b) { return b.score - a.score; });
+        if (!best) return { ok: false, error: 'submit button not found', candidates: candidates.slice(0, 8) };
+        if (best.button.disabled) return { ok: false, error: 'submit button disabled', candidate: best.meta, candidates: candidates.slice(0, 8) };
+        best.button.click();
+        return {
+          ok: true,
+          clicked_text: best.meta.text.substring(0, 80),
+          clicked_data_name: best.meta.data_name,
+          score: best.meta.score,
+          candidates: candidates.slice(0, 8)
+        };
       } catch(e) { return { ok: false, error: e.message }; }
     })()
   `);
@@ -646,7 +711,7 @@ export async function submitOrder(opts = {}) {
   // Short grace period for the dialog to update the submit-button enabled state
   await sleep(300);
 
-  const submitted = await submitOrderDialog();
+  const submitted = await submitOrderDialog({ side, orderType: order_type, quantity: qty, symbol: activeSymbol });
   if (!submitted?.ok) {
     const err = new Error(`Failed to submit order: ${submitted?.error || 'unknown'}`);
     err.code = ErrorCodes.ELEMENT_NOT_CLICKABLE;
@@ -733,15 +798,31 @@ export async function closePosition({ consent, position_id } = {}) {
   const result = await evaluate(`
     (function() {
       try {
+        var tabs = Array.prototype.slice.call(document.querySelectorAll('button, [role="tab"], [role="button"]'));
+        var positionsTab = tabs.find(function(tab) {
+          return /^positions$/i.test((tab.textContent || '').replace(/\\s+/g, ' ').trim());
+        });
+        if (positionsTab) positionsTab.click();
         var target = '${escapedId}';
         var rows = document.querySelectorAll('[data-name$=".positions-table"] tr, [data-name$=".positions-table"] [class*="row"], [data-name="positions"] [class*="row"], [class*="positions-list"] [class*="row"]');
+        var closableRows = [];
         for (var i = 0; i < rows.length; i++) {
           var row = rows[i];
-          if ((row.textContent || '').indexOf(target) === -1) continue;
+          if (row.offsetParent === null) continue;
           var closeBtn = row.querySelector('[data-name="close-position-button"], [data-name="close-settings-cell-button"], [aria-label*="Close"], [aria-label*="Cerrar"], [title*="Close"], button[class*="close"]');
-          if (closeBtn) { closeBtn.click(); return { ok: true, clicked: true }; }
+          if (!closeBtn) continue;
+          var text = row.textContent || '';
+          closableRows.push({ row: row, closeBtn: closeBtn, text: text });
+          if (text.indexOf(target) !== -1) {
+            closeBtn.click();
+            return { ok: true, clicked: true, matched: 'position_id', row_text: text.substring(0, 300) };
+          }
         }
-        return { ok: false, error: 'position row not found or no close button' };
+        if (closableRows.length === 1) {
+          closableRows[0].closeBtn.click();
+          return { ok: true, clicked: true, matched: 'single_open_position_fallback', row_text: closableRows[0].text.substring(0, 300) };
+        }
+        return { ok: false, error: 'position row not found or no close button', closable_rows: closableRows.map(function(r) { return r.text.substring(0, 220); }) };
       } catch(e) { return { ok: false, error: e.message }; }
     })()
   `);
