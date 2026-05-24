@@ -1,5 +1,7 @@
 # Risque, Capital et Levier
 
+Les valeurs actives viennent de `SKILL.md` > `Config Centrale`. Ce fichier donne les formules et des exemples bases sur la config initiale.
+
 ## Principe Central
 
 Le levier configure ne definit pas le risque. Le risque est defini par:
@@ -8,9 +10,11 @@ Le levier configure ne definit pas le risque. Le risque est defini par:
 Risque USD = distance stop-loss x valeur du point/pip x taille position
 ```
 
-Avec un capital de 200 USD et risque 1%:
+Avec la config initiale du skill:
 
 ```text
+Capital de reference = 200 USD
+Risque par trade = 1%
 Risque max par trade = 2 USD
 Stop quotidien -3% = 6 USD
 Risque simultane max = 4 USD (2%)
@@ -27,14 +31,14 @@ Regles:
 - Si le SL structurel implique une perte > 1%, reduire la taille ou refuser.
 - Ne jamais elargir le SL pour "supporter" le levier.
 
-## XAU/USD - Capital 200 USD
+## XAU/USD - Exemple Config Initiale
 
 Hypothese frequente CFD:
 
 - 0.01 lot XAU = environ 1 once.
 - 1 pip XAU de 0.01 = environ 0.10 USD pour 0.01 lot selon broker.
 
-Avec 1% = 2 USD:
+Avec la config initiale, 1% = 2 USD:
 
 | SL | Taille max approximative | Commentaire |
 |---|---:|---|
@@ -43,13 +47,13 @@ Avec 1% = 2 USD:
 | 50 pips | 0.004 lot | Souvent impossible sur petit compte si lot min 0.01 |
 | 80 pips | 0.0025 lot | Trop large si lot min 0.01 |
 
-Conclusion XAU:
+Conclusion XAU avec la config initiale:
 
-- Avec 200 USD, 0.01 lot est viable seulement si le SL structurel est proche de 20 pips.
+- Avec le capital initial, 0.01 lot est viable seulement si le SL structurel est proche de 20 pips.
 - Si le setup intraday exige 30 a 80 pips, il faut broker avec micro sizing inferieur a 0.01 lot ou refuser.
 - Paper Trading doit simuler les contraintes du broker reel.
 
-## BTC/USD - Capital 200 USD
+## BTC/USD - Exemple Config Initiale
 
 BTC est plus volatil que XAU. Un levier 100:1 est dangereux en reel et inutile si le sizing est correct.
 
@@ -72,7 +76,7 @@ Notionnel = taille BTC x prix BTC
 Marge = notionnel / levier
 ```
 
-Refuser si marge totale > 20% du capital ou liquidation trop proche du SL.
+Refuser si marge totale > 20% du capital configure ou liquidation trop proche du SL.
 
 ## Tableau Capital et Levier
 
@@ -137,7 +141,7 @@ Drawdown -20%:
 ## Positions Simultanees
 
 - Risque simultane total max: 2% du capital.
-- Avec capital 200 USD: maximum 4 USD de risque total ouvert.
+- Avec la config initiale: maximum 4 USD de risque total ouvert.
 - Si XAU et BTC sont exposes au meme theme macro, considerer le risque comme correle.
 
 Exemple:
@@ -183,4 +187,3 @@ Utiliser aussi:
 - Max drawdown.
 - Respect des regles.
 - R moyen gagnant / R moyen perdant.
-

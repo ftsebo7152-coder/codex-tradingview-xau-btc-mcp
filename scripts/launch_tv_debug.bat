@@ -12,12 +12,16 @@ timeout /t 2 /nobreak >nul
 REM Auto-detect TradingView install location
 set "TV_EXE="
 
+REM Explicit path from environment, useful for Microsoft Store / WindowsApps installs
+if not "%TRADINGVIEW_EXE_PATH%"=="" if exist "%TRADINGVIEW_EXE_PATH%" set "TV_EXE=%TRADINGVIEW_EXE_PATH%"
+
 REM Check common install locations
 if exist "%LOCALAPPDATA%\TradingView\TradingView.exe" set "TV_EXE=%LOCALAPPDATA%\TradingView\TradingView.exe"
 if exist "%PROGRAMFILES%\TradingView\TradingView.exe" set "TV_EXE=%PROGRAMFILES%\TradingView\TradingView.exe"
 if exist "%PROGRAMFILES(x86)%\TradingView\TradingView.exe" set "TV_EXE=%PROGRAMFILES(x86)%\TradingView\TradingView.exe"
 
 REM Check MSIX / Windows Store installs
+if "%TV_EXE%"=="" if exist "%PROGRAMFILES%\WindowsApps\TradingView.Desktop_3.1.0.7818_x64__n534cwy3pjxzj\TradingView.exe" set "TV_EXE=%PROGRAMFILES%\WindowsApps\TradingView.Desktop_3.1.0.7818_x64__n534cwy3pjxzj\TradingView.exe"
 if "%TV_EXE%"=="" (
     for /f "tokens=*" %%i in ('dir /s /b "%PROGRAMFILES%\WindowsApps\TradingView*\TradingView.exe" 2^>nul') do set "TV_EXE=%%i"
 )

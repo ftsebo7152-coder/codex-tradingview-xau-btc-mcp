@@ -294,10 +294,11 @@ export async function launch({ port, kill_existing, _deps } = {}) {
       `${deps.env.HOME}/Applications/TradingView.app/Contents/MacOS/TradingView`,
     ],
     win32: [
+      deps.env.TRADINGVIEW_EXE_PATH,
       `${deps.env.LOCALAPPDATA}\\TradingView\\TradingView.exe`,
       `${deps.env.PROGRAMFILES}\\TradingView\\TradingView.exe`,
       `${deps.env['PROGRAMFILES(X86)']}\\TradingView\\TradingView.exe`,
-    ],
+    ].filter(Boolean),
     linux: [
       '/opt/TradingView/tradingview',
       '/opt/TradingView/TradingView',

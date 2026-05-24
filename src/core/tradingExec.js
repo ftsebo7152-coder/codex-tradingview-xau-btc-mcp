@@ -91,9 +91,19 @@ async function ensureTradingPanelOpen() {
       var bottom = document.querySelector('[class*="layout__area--bottom"]');
       if (!bottom) return false;
       if (bottom.offsetHeight < 100) return false;
-      var tp = document.querySelector('[data-name="trading-panel"]')
-        || document.querySelector('[class*="trading-panel"]');
-      return !!(tp && tp.offsetHeight > 50);
+      var selectors = [
+        '[data-name="trading-panel"]',
+        '[class*="accountManager"]',
+        '[class*="account-manager"]',
+        '[data-name$=".positions-table"]',
+        '[data-name$=".orders-table"]',
+        '[class*="trading-panel"]'
+      ];
+      for (var i = 0; i < selectors.length; i++) {
+        var tp = document.querySelector(selectors[i]);
+        if (tp && tp.offsetHeight > 50) return true;
+      }
+      return false;
     })()
   `);
   if (isOpen) return true;
@@ -112,9 +122,19 @@ async function ensureTradingPanelOpen() {
     async () => {
       return evaluate(`
         (function() {
-          var tp = document.querySelector('[data-name="trading-panel"]')
-            || document.querySelector('[class*="trading-panel"]');
-          return !!(tp && tp.offsetHeight > 50);
+          var selectors = [
+            '[data-name="trading-panel"]',
+            '[class*="accountManager"]',
+            '[class*="account-manager"]',
+            '[data-name$=".positions-table"]',
+            '[data-name$=".orders-table"]',
+            '[class*="trading-panel"]'
+          ];
+          for (var i = 0; i < selectors.length; i++) {
+            var tp = document.querySelector(selectors[i]);
+            if (tp && tp.offsetHeight > 50) return true;
+          }
+          return false;
         })()
       `);
     },
@@ -146,6 +166,7 @@ async function openOrderDialog({ side }) {
       return evaluate(`
         (function() {
           var d = document.querySelector('[data-name="order-dialog"]')
+            || document.querySelector('[data-name="order-dialog-popup"]')
             || document.querySelector('[data-dialog-name*="order"]')
             || document.querySelector('[class*="orderDialog"]');
           return !!(d && d.offsetParent !== null);
@@ -178,6 +199,7 @@ async function openOrderDialog({ side }) {
       return evaluate(`
         (function() {
           var d = document.querySelector('[data-name="order-dialog"]')
+            || document.querySelector('[data-name="order-dialog-popup"]')
             || document.querySelector('[data-dialog-name*="order"]')
             || document.querySelector('[class*="orderDialog"]');
           return !!(d && d.offsetParent !== null);
@@ -194,6 +216,39 @@ async function openOrderDialog({ side }) {
   return { method: 'click' };
 }
 
+async function selectOrderType(orderType) {
+  const label = orderType === 'market' ? 'Market' : orderType === 'limit' ? 'Limit' : 'Stop';
+  const escapedLabel = escapeJsString(label);
+  const result = await evaluate(`
+    (function() {
+      try {
+        var dialog = document.querySelector('[data-name="order-dialog"]')
+          || document.querySelector('[data-name="order-dialog-popup"]')
+          || document.querySelector('[class*="orderDialog"]');
+        if (!dialog) return { ok: false, error: 'dialog not open' };
+        var buttons = dialog.querySelectorAll('button, [role="button"]');
+        var target = '${escapedLabel}'.toLowerCase();
+        for (var i = 0; i < buttons.length; i++) {
+          var txt = (buttons[i].textContent || '').trim().toLowerCase();
+          if (txt === target) {
+            buttons[i].click();
+            return { ok: true, selected: '${escapedLabel}' };
+          }
+        }
+        return { ok: false, error: 'order type tab not found', target: '${escapedLabel}' };
+      } catch(e) { return { ok: false, error: e.message }; }
+    })()
+  `);
+  if (!result?.ok) {
+    const err = new Error(`Could not select order type ${label}: ${result?.error || 'unknown'}`);
+    err.code = ErrorCodes.SELECTOR_NOT_FOUND;
+    err.details = result;
+    throw err;
+  }
+  await sleep(250);
+  return result;
+}
+
 /**
  * Find and set the value of a numeric input inside the Order Dialog by
  * matching its label or placeholder. Uses React's native setter so the
@@ -206,6 +261,7 @@ async function setDialogField(fieldPattern, value) {
     (function() {
       try {
         var dialog = document.querySelector('[data-name="order-dialog"]')
+          || document.querySelector('[data-name="order-dialog-popup"]')
           || document.querySelector('[class*="orderDialog"]');
         if (!dialog) return { ok: false, error: 'dialog not open' };
         var inputs = dialog.querySelectorAll('input');
@@ -232,6 +288,39 @@ async function setDialogField(fieldPattern, value) {
             return { ok: true, field: labels.find(function(l) { return l; }) || 'unknown' };
           }
         }
+        if (dialog.getAttribute('data-name') === 'order-dialog-popup') {
+          var visibleInputs = Array.prototype.slice.call(inputs).filter(function(candidate) {
+            return candidate.offsetParent !== null;
+          });
+          var field = '${pattern}'.toLowerCase();
+          var priceInputs = visibleInputs.filter(function(candidate) {
+            return (candidate.className || '').toString().indexOf('priceInput') !== -1;
+          });
+          var exitInputs = visibleInputs.filter(function(candidate) {
+            return (candidate.className || '').toString().indexOf('input-uv5obCI0') !== -1;
+          });
+          var targetInput = null;
+          if (/qty|quantity|cantidad/.test(field)) {
+            targetInput = visibleInputs.find(function(candidate) {
+              var cls = (candidate.className || '').toString();
+              return cls.indexOf('priceInput') === -1 && cls.indexOf('input-uv5obCI0') === -1 && (candidate.value || '').trim() !== '';
+            });
+          } else if (/^price|precio/.test(field)) {
+            targetInput = priceInputs[0] || visibleInputs[0];
+          } else if (/take profit|tp|ganancia/.test(field)) {
+            targetInput = exitInputs[0] || null;
+          } else if (/stop loss|sl|p[eé]rdida/.test(field)) {
+            targetInput = exitInputs[1] || null;
+          }
+          if (targetInput) {
+            var fallbackSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+            fallbackSetter.call(targetInput, String(${val}));
+            targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+            targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+            targetInput.blur();
+            return { ok: true, field: 'order-dialog-popup fallback' };
+          }
+        }
         return { ok: false, error: 'field not found', tried: inputs.length };
       } catch(e) { return { ok: false, error: e.message }; }
     })()
@@ -247,6 +336,7 @@ async function submitOrderDialog() {
     (function() {
       try {
         var dialog = document.querySelector('[data-name="order-dialog"]')
+          || document.querySelector('[data-name="order-dialog-popup"]')
           || document.querySelector('[class*="orderDialog"]');
         if (!dialog) return { ok: false, error: 'dialog not open' };
         var btns = dialog.querySelectorAll('button[data-name="submit"], button[type="submit"], button');
@@ -343,6 +433,7 @@ export async function submitOrder(opts = {}) {
   }
 
   const opened = await openOrderDialog({ side });
+  const selectedOrderType = await selectOrderType(order_type);
 
   // Fill the fields. Each setDialogField returns { ok, field? } or
   // { ok: false, error }. We collect errors and report them instead of
@@ -362,6 +453,19 @@ export async function submitOrder(opts = {}) {
   }
   if (stop_loss != null) {
     fillResults.stop_loss = await setDialogField('stop loss|sl|p[eé]rdida', validateNumber(stop_loss, 'stop_loss'));
+  }
+
+  const requiredFills = ['quantity'];
+  if (order_type === 'limit') requiredFills.push('limit_price');
+  if (order_type === 'stop') requiredFills.push('stop_price');
+  if (take_profit != null) requiredFills.push('take_profit');
+  if (stop_loss != null) requiredFills.push('stop_loss');
+  const failedFills = requiredFills.filter((key) => !fillResults[key]?.ok);
+  if (failedFills.length) {
+    const err = new Error(`Required order fields were not filled: ${failedFills.join(', ')}`);
+    err.code = ErrorCodes.SELECTOR_NOT_FOUND;
+    err.details = { fill_results: fillResults };
+    throw err;
   }
 
   // Short grace period for the dialog to update the submit-button enabled state
@@ -387,6 +491,7 @@ export async function submitOrder(opts = {}) {
     take_profit: take_profit ?? null,
     stop_loss: stop_loss ?? null,
     dialog_method: opened.method,
+    selected_order_type: selectedOrderType,
     fill_results: fillResults,
     submit: submitted,
     note:
@@ -415,11 +520,11 @@ export async function cancelOrder({ consent, order_id } = {}) {
     (function() {
       try {
         var target = '${escapedId}';
-        var rows = document.querySelectorAll('[data-name="orders"] [class*="row"], [class*="orders-list"] [class*="row"]');
+        var rows = document.querySelectorAll('[data-name$=".orders-table"] tr, [data-name$=".orders-table"] [class*="row"], [data-name="orders"] [class*="row"], [class*="orders-list"] [class*="row"]');
         for (var i = 0; i < rows.length; i++) {
           var row = rows[i];
           if ((row.textContent || '').indexOf(target) === -1) continue;
-          var cancelBtn = row.querySelector('[data-name="cancel-order-button"], [aria-label*="Cancel"], [aria-label*="Cancelar"], button[class*="cancel"]');
+          var cancelBtn = row.querySelector('[data-name="cancel-order-button"], [data-name="close-settings-cell-button"], [aria-label*="Cancel"], [aria-label*="Cancelar"], [title*="Cancel"], button[class*="cancel"]');
           if (cancelBtn) { cancelBtn.click(); return { ok: true, clicked: true }; }
         }
         return { ok: false, error: 'order row not found or no cancel button' };

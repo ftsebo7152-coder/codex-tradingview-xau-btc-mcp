@@ -19,6 +19,13 @@ Premium/discount:
 Entree:
 SL:
 TP1/TP2/TP3:
+Gestion active avant TP1:
+Progression max vers TP1:
+TP1 touche: oui/non
+TP1 missed reversal detecte: oui/non
+Signaux defensifs detectes:
+Action proposee:
+Action validee par humain:
 Risque USD/%:
 Taille:
 Levier effectif:
@@ -174,4 +181,3 @@ Analyser:
 - Correlations qui marchent ou ne marchent plus.
 - Ajustements majeurs du skill.
 - Decision de passage reel seulement si demo stable.
-

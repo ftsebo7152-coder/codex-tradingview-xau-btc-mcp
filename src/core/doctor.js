@@ -47,10 +47,11 @@ function tradingViewInstallCandidates() {
   const local = process.env.LOCALAPPDATA || "";
   const programFiles = process.env.PROGRAMFILES || "C:\\Program Files";
   return [
+    process.env.TRADINGVIEW_EXE_PATH,
     join(local, "Programs", "TradingView", "TradingView.exe"),
     join(local, "TradingView", "TradingView.exe"),
     join(programFiles, "TradingView", "TradingView.exe"),
-  ];
+  ].filter(Boolean);
 }
 
 function isTradingViewRunning() {
@@ -59,7 +60,12 @@ function isTradingViewRunning() {
     const output = execSync('tasklist /FI "IMAGENAME eq TradingView.exe" /NH', { timeout: 3000 }).toString();
     return /TradingView\.exe/i.test(output);
   } catch {
-    return false;
+    try {
+      execSync('powershell.exe -NoProfile -Command "if (Get-Process TradingView -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"', { timeout: 3000, stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

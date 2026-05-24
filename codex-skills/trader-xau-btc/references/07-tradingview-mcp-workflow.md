@@ -9,6 +9,9 @@ Objectif:
 - Lire le contexte.
 - Scanner XAU/USD et BTC/USD.
 - Detecter les setups.
+- Surveiller une position ouverte.
+- Detecter un TP1 presque atteint mais non execute.
+- Proposer une gestion defensive si la structure s'invalide avant TP1.
 - Calculer risque, SL, TP, taille.
 - Refuser les mauvais trades.
 - Journaliser.
@@ -51,10 +54,10 @@ En demo:
 - Autoriser semi-automatisation avancee.
 - Le skill peut proposer et preparer un ordre.
 - Paper Trading doit simuler:
-  - capital 200 USD;
-  - levier compte 100:1 si voulu;
+  - le capital defini dans `SKILL.md` > `Config Centrale`;
+  - le levier compte defini dans `SKILL.md` > `Config Centrale`;
   - commissions/spread proches du reel;
-  - sizing strict 1%.
+  - sizing strict selon `risk_per_trade_pct`.
 
 Le skill doit journaliser tous les signaux, meme refuses.
 
@@ -91,6 +94,11 @@ Taille:
 Levier effectif:
 Score:
 Autorisation:
+Gestion active avant TP1:
+Progression vers TP1:
+TP1 touche: oui/non
+Signaux defensifs detectes:
+Action proposee:
 Validation humaine requise:
 ```
 

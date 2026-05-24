@@ -9,6 +9,10 @@
  * Pipe-friendly: every command outputs JSON for use with jq.
  */
 
+import dotenv from "dotenv";
+
+dotenv.config();
+
 // Register all commands
 import "./commands/health.js";
 import "./commands/chart.js";
