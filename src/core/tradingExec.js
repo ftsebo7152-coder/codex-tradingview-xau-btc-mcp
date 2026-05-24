@@ -114,6 +114,7 @@ export function scoreOrderSubmitCandidate({ text = '', dataName = '', side = '',
   const dn = String(dataName || '');
   const lower = txt.toLowerCase();
   const sideWord = side === 'sell' ? 'sell' : 'buy';
+  const oppositeSideWord = sideWord === 'buy' ? 'sell' : 'buy';
   const symbolBase = String(symbol || '').split(':').pop().toLowerCase();
   const symbolRoot = symbolBase.replace(/[^a-z0-9]/g, '');
 
@@ -123,6 +124,12 @@ export function scoreOrderSubmitCandidate({ text = '', dataName = '', side = '',
   }
   if (/\b(strong\s+buy|strong\s+sell|technical|seasonal|more)\b/i.test(txt)) {
     return { score: -1, reason: 'non_trading_widget_button' };
+  }
+  if (new RegExp('^' + oppositeSideWord + '\\b', 'i').test(txt)) {
+    return { score: -1, reason: 'opposite_side_submit_button' };
+  }
+  if (/\b(market|limit|stop)\b/i.test(txt) && new RegExp('\\b' + oppositeSideWord + '\\b', 'i').test(txt)) {
+    return { score: -1, reason: 'opposite_side_order_ticket_button' };
   }
 
   let score = 0;
@@ -546,6 +553,7 @@ async function submitOrderDialog({ side, orderType, quantity, symbol } = {}) {
         var symbol = '${escapedSymbol}'.split(':').pop().toLowerCase().replace(/[^a-z0-9]/g, '');
         var qty = '${escapedQuantity}';
         var sideWord = side === 'sell' ? 'sell' : 'buy';
+        var oppositeSideWord = sideWord === 'buy' ? 'sell' : 'buy';
         function scoreButton(btn) {
           var txt = (btn.textContent || '').replace(/\\s+/g, ' ').trim();
           var dn = (btn.getAttribute('data-name') || '');
@@ -554,6 +562,8 @@ async function submitOrderDialog({ side, orderType, quantity, symbol } = {}) {
           if (!txt && !dn) return { score: -1, reason: 'empty', text: txt, data_name: dn };
           if (/^(sell|buy)\\s*[\\d.,]+$/i.test(txt)) return { score: -1, reason: 'quote_price_button', text: txt, data_name: dn };
           if (/\\b(strong\\s+buy|strong\\s+sell|technical|seasonal|more)\\b/i.test(txt)) return { score: -1, reason: 'non_trading_widget_button', text: txt, data_name: dn };
+          if (new RegExp('^' + oppositeSideWord + '\\\\b', 'i').test(txt)) return { score: -1, reason: 'opposite_side_submit_button', text: txt, data_name: dn };
+          if (/\\b(market|limit|stop)\\b/i.test(txt) && new RegExp('\\\\b' + oppositeSideWord + '\\\\b', 'i').test(txt)) return { score: -1, reason: 'opposite_side_order_ticket_button', text: txt, data_name: dn };
           var rect = btn.getBoundingClientRect();
           var score = 0;
           if (dn === 'submit' || dn === 'submit-button') score += 40;

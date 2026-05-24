@@ -57,3 +57,17 @@ test('scores the real TradingView order-ticket submit button above quote buttons
   assert.equal(quote.score, -1);
   assert.ok(submit.score > 100);
 });
+
+test('rejects opposite-side order-ticket submit buttons', () => {
+  const result = scoreOrderSubmitCandidate({
+    text: 'Sell 0.0007 BTCUSDT MARKET',
+    dataName: 'place-and-modify-button',
+    side: 'buy',
+    orderType: 'market',
+    symbol: 'BINANCE:BTCUSDT',
+    y: 688,
+  });
+
+  assert.equal(result.score, -1);
+  assert.equal(result.reason, 'opposite_side_submit_button');
+});
