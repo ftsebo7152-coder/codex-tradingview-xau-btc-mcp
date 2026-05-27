@@ -4,6 +4,7 @@ import { getFinnhubEconomicCalendar } from "../providers/finnhub.js";
 import { getManualCalendar } from "../providers/manualCalendar.js";
 import { getFredMacroContext } from "../providers/fred.js";
 import { getBtcMarketContext } from "../providers/binance.js";
+import { getCoinGeckoBitcoinContext } from "../providers/coingecko.js";
 import { searchBraveNews } from "../providers/brave.js";
 import { getCryptoPanicNews } from "../providers/cryptopanic.js";
 import { getRssHeadlines } from "../providers/rss.js";
@@ -81,14 +82,16 @@ export async function buildFundamentalContext({ asset = "XAUUSD", session = "new
   const assetKey = normalizeAsset(asset);
   const range = todayRange({ timezone, daysForward: 1 });
   const calendar = await getEconomicCalendar({ from: from || range.from, to: to || range.to, timezone });
-  const [macro, headlines, btc] = await Promise.all([
+  const [macro, headlines, btc, coingecko] = await Promise.all([
     getFredMacroContext(),
     getHeadlines({ asset: assetKey, query: buildNewsQuery(assetKey, session), count: 10 }),
-    assetKey === "BTCUSD" ? getBtcMarketContext({ symbol: "BTCUSDT", includeOrderBook }) : Promise.resolve(null)
+    assetKey === "BTCUSD" ? getBtcMarketContext({ symbol: "BTCUSDT", includeOrderBook }) : Promise.resolve(null),
+    assetKey === "BTCUSD" ? getCoinGeckoBitcoinContext() : Promise.resolve(null)
   ]);
+  const btcContext = btc ? { ...btc, coingecko } : null;
 
   const blackout = checkBlackout({ events: calendar.events, asset: assetKey, timezone });
-  const score = scoreFundamentals({ asset: assetKey, macro, btc, headlines: headlines.results, blackout });
+  const score = scoreFundamentals({ asset: assetKey, macro, btc: btcContext, headlines: headlines.results, blackout });
 
   return {
     schemaVersion: "1.0.0",
@@ -101,7 +104,7 @@ export async function buildFundamentalContext({ asset = "XAUUSD", session = "new
     calendar,
     blackout,
     macro,
-    btc,
+    btc: btcContext,
     headlines,
     fundamentalScore: score,
     codexInstructions: [

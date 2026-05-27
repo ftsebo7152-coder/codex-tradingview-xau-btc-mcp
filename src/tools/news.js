@@ -5,6 +5,7 @@ import { getEconomicCalendar, getHeadlines, buildFundamentalContext } from "../c
 import { checkBlackout } from "../core/blackout.js";
 import { getFredMacroContext, getFredSeries } from "../providers/fred.js";
 import { getBtcMarketContext, getFundingRate, getOpenInterest, getOrderBook } from "../providers/binance.js";
+import { getCoinGeckoBitcoinContext } from "../providers/coingecko.js";
 import { clearCache } from "../http.js";
 
 const assetSchema = z.enum(["XAUUSD", "XAU/USD", "BTCUSD", "BTC/USD", "BTCUSDT"]);
@@ -153,6 +154,10 @@ export function registerNewsTools(server) {
       limit: z.coerce.number().min(5).max(1000).default(50),
     },
     async ({ symbol, limit }) => jsonResult(await getOrderBook(symbol, limit)),
+  );
+
+  server.tool("btc_get_coingecko_context", "Fetch BTC spot market context from CoinGecko Demo API when COINGECKO_API_KEY is configured.", {}, async () =>
+    jsonResult(await getCoinGeckoBitcoinContext()),
   );
 
   server.tool(

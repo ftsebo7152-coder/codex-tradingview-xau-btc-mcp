@@ -22,6 +22,7 @@ export const config = {
   cacheTtlSeconds: numberEnv("CACHE_TTL_SECONDS", 120),
   finnhubApiKey: process.env.FINNHUB_API_KEY || "",
   fredApiKey: process.env.FRED_API_KEY || "",
+  coingeckoApiKey: process.env.COINGECKO_API_KEY || "",
   braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
   cryptoPanicApiKey: process.env.CRYPTOPANIC_API_KEY || "",
   manualCalendarPath: process.env.MANUAL_CALENDAR_PATH || "./data/manual_calendar.json",
@@ -51,6 +52,7 @@ export function providerStatus() {
   return {
     finnhub: Boolean(config.finnhubApiKey),
     fred: Boolean(config.fredApiKey),
+    coingecko: Boolean(config.coingeckoApiKey),
     braveSearch: Boolean(config.braveSearchApiKey),
     cryptoPanic: Boolean(config.cryptoPanicApiKey),
     rss: true,

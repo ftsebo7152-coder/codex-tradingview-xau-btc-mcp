@@ -42,8 +42,11 @@ export function scoreFundamentals({ asset = "XAUUSD", macro = {}, btc = null, he
     if (dollar === "rising" || us10y === "rising") { shortScore += 2; reasons.push("Dollar/yields rising: tighter liquidity, usually negative for BTC."); }
     if (dollar === "falling" || us10y === "falling") { longScore += 2; reasons.push("Dollar/yields falling: easier liquidity, usually supportive for BTC."); }
     const fundingState = btc?.interpretation?.fundingState;
+    const coingeckoBias = btc?.coingecko?.interpretation?.marketBias24h;
     if (fundingState === "dangerously_positive") { shortScore += 2; reasons.push("BTC funding very positive: avoid late longs; long squeeze risk."); }
     if (fundingState === "negative") { longScore += 1; reasons.push("BTC funding negative: possible short squeeze if structure confirms."); }
+    if (coingeckoBias === "strong_risk_on") { longScore += 1; reasons.push("CoinGecko BTC 24h context strongly positive; avoid aggressive shorts without technical confirmation."); }
+    if (coingeckoBias === "strong_risk_off") { shortScore += 1; reasons.push("CoinGecko BTC 24h context strongly negative; avoid aggressive longs without reversal confirmation."); }
     if (newsRisk.riskOnHits.some((x) => x.includes("etf") || x.includes("inflow"))) { longScore += 1; reasons.push("ETF/inflow positive language detected; avoid aggressive shorts without technical confirmation."); }
   }
 
