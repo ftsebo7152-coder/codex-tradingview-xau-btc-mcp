@@ -28,7 +28,14 @@ export function isTerminalOrderRow(rawCells = [], cells = {}) {
     ...Object.values(cells || {}),
     ...(Array.isArray(rawCells) ? rawCells : []),
   ].join(' ').toLowerCase();
-  return /\b(filled|cancelled|canceled|rejected|expired)\b/.test(text);
+  if (/\b(filled|cancelled|canceled|rejected|expired)\b/.test(text)) return true;
+  // TradingView sometimes keeps executed market rows in the same DOM table
+  // without an explicit "filled" status. Market orders should not remain
+  // pending; pending exit/bracket orders are usually Stop/Limit/Stop Loss.
+  if (/\b(buy|sell)\b/.test(text) && /\bmarket\b/.test(text) && !/\b(working|open|active)\b/.test(text)) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -179,6 +186,7 @@ async function scrapeTable(tableSelectors, kind) {
           if ('${kind}' === 'orders') {
             var rowText = Object.keys(labeled).map(function(k) { return labeled[k]; }).concat(cellTexts).join(' ').toLowerCase();
             if (/\\b(filled|cancelled|canceled|rejected|expired)\\b/.test(rowText)) continue;
+            if (/\\b(buy|sell)\\b/.test(rowText) && /\\bmarket\\b/.test(rowText) && !/\\b(working|open|active)\\b/.test(rowText)) continue;
           }
           positions.push({ raw_cells: cellTexts, cells: labeled });
         } catch (ex) {

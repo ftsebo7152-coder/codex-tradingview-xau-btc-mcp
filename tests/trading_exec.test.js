@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeQuantityForSymbol, scoreOrderSubmitCandidate } from '../src/core/tradingExec.js';
+import { normalizeQuantityForSymbol, scoreOrderSubmitCandidate, isPositionsTabText } from '../src/core/tradingExec.js';
 
 test('normalizes BTCUSDT quantity to TradingView paper step', () => {
   const result = normalizeQuantityForSymbol(0.000781, 'BINANCE:BTCUSDT');
@@ -70,4 +70,12 @@ test('rejects opposite-side order-ticket submit buttons', () => {
 
   assert.equal(result.score, -1);
   assert.equal(result.reason, 'opposite_side_submit_button');
+});
+
+test('recognizes TradingView positions tab with count suffix', () => {
+  assert.equal(isPositionsTabText('Positions'), true);
+  assert.equal(isPositionsTabText('Positions 1'), true);
+  assert.equal(isPositionsTabText('Positions 12'), true);
+  assert.equal(isPositionsTabText('Orders 1'), false);
+  assert.equal(isPositionsTabText('Order history'), false);
 });

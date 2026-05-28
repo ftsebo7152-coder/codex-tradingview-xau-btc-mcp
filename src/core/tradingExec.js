@@ -144,6 +144,15 @@ export function scoreOrderSubmitCandidate({ text = '', dataName = '', side = '',
   return { score, reason: 'candidate' };
 }
 
+function normalizeUiText(text = '') {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+export function isPositionsTabText(text = '') {
+  const normalized = normalizeUiText(text).toLowerCase();
+  return /^positions(?:\s+\d+)?$/.test(normalized) || /^positions\b/.test(normalized);
+}
+
 async function getOrderDialogInfo() {
   return evaluate(`
     (function() {
@@ -827,23 +836,70 @@ export async function closePosition({ consent, position_id } = {}) {
   }
   const mode = await detectTradingMode();
   const escapedId = escapeJsString(position_id);
+
+  const tabClick = await evaluate(`
+    (function() {
+      try {
+        var candidates = Array.prototype.slice.call(document.querySelectorAll('button, [role="tab"], [role="button"], div, span'));
+        function clean(el) { return (el.textContent || '').replace(/\\s+/g, ' ').trim(); }
+        var positionsTab = candidates.find(function(el) {
+          if (el.offsetParent === null) return false;
+          var txt = clean(el).toLowerCase();
+          return /^positions(?:\\s+\\d+)?$/.test(txt) || /^positions\\b/.test(txt);
+        });
+        if (!positionsTab) return { ok: false, error: 'positions tab not found' };
+        positionsTab.click();
+        return { ok: true, text: clean(positionsTab).substring(0, 80) };
+      } catch(e) { return { ok: false, error: e.message }; }
+    })()
+  `);
+  await sleep(450);
+
   const result = await evaluate(`
     (function() {
       try {
-        var tabs = Array.prototype.slice.call(document.querySelectorAll('button, [role="tab"], [role="button"]'));
-        var positionsTab = tabs.find(function(tab) {
-          return /^positions$/i.test((tab.textContent || '').replace(/\\s+/g, ' ').trim());
-        });
-        if (positionsTab) positionsTab.click();
         var target = '${escapedId}';
-        var rows = document.querySelectorAll('[data-name$=".positions-table"] tr, [data-name$=".positions-table"] [class*="row"], [data-name="positions"] [class*="row"], [class*="positions-list"] [class*="row"]');
+        var rows = Array.prototype.slice.call(document.querySelectorAll([
+          '[data-name$=".positions-table"] tr',
+          '[data-name$=".positions-table"] [class*="row"]',
+          '[data-name="positions"] [class*="row"]',
+          '[class*="positions-list"] [class*="row"]',
+          '[class*="ka-tr"]:not([class*="thead"]):not([class*="emptyStateRow"])'
+        ].join(',')));
         var closableRows = [];
+        function rowText(row) { return (row.textContent || '').replace(/\\s+/g, ' ').trim(); }
+        function findCloseButton(row) {
+          var selectors = [
+            '[data-name="close-position-button"]',
+            '[data-name="close-settings-cell-button"]',
+            '[aria-label*="Close"]',
+            '[aria-label*="close"]',
+            '[aria-label*="Fermer"]',
+            '[aria-label*="Cerrar"]',
+            '[title*="Close"]',
+            '[title*="close"]',
+            '[title*="Fermer"]',
+            '[title*="Cerrar"]',
+            'button[class*="close"]',
+            '[role="button"][class*="close"]'
+          ];
+          for (var s = 0; s < selectors.length; s++) {
+            var found = row.querySelector(selectors[s]);
+            if (found) return found;
+          }
+          var buttons = Array.prototype.slice.call(row.querySelectorAll('button, [role="button"], [data-name], [aria-label], [title]'));
+          return buttons.find(function(btn) {
+            var txt = ((btn.textContent || '') + ' ' + (btn.getAttribute('aria-label') || '') + ' ' + (btn.getAttribute('title') || '') + ' ' + (btn.getAttribute('data-name') || '')).toLowerCase();
+            return /close|fermer|cerrar|x|×|−/.test(txt);
+          }) || null;
+        }
         for (var i = 0; i < rows.length; i++) {
           var row = rows[i];
           if (row.offsetParent === null) continue;
-          var closeBtn = row.querySelector('[data-name="close-position-button"], [data-name="close-settings-cell-button"], [aria-label*="Close"], [aria-label*="Cerrar"], [title*="Close"], button[class*="close"]');
+          var text = rowText(row);
+          if (!/\\b(long|short|buy|sell|btc|xau|eur|usd|usdt)\\b/i.test(text) && text.indexOf(target) === -1) continue;
+          var closeBtn = findCloseButton(row);
           if (!closeBtn) continue;
-          var text = row.textContent || '';
           closableRows.push({ row: row, closeBtn: closeBtn, text: text });
           if (text.indexOf(target) !== -1) {
             closeBtn.click();
@@ -854,7 +910,14 @@ export async function closePosition({ consent, position_id } = {}) {
           closableRows[0].closeBtn.click();
           return { ok: true, clicked: true, matched: 'single_open_position_fallback', row_text: closableRows[0].text.substring(0, 300) };
         }
-        return { ok: false, error: 'position row not found or no close button', closable_rows: closableRows.map(function(r) { return r.text.substring(0, 220); }) };
+        return {
+          ok: false,
+          error: 'position row not found or no close button',
+          tab_click: ${JSON.stringify(tabClick)},
+          row_count: rows.length,
+          visible_rows: rows.filter(function(r) { return r.offsetParent !== null; }).slice(0, 8).map(function(r) { return rowText(r).substring(0, 220); }),
+          closable_rows: closableRows.map(function(r) { return r.text.substring(0, 220); })
+        };
       } catch(e) { return { ok: false, error: e.message }; }
     })()
   `);

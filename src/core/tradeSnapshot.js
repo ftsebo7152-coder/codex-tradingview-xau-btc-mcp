@@ -193,6 +193,7 @@ export async function tradeSnapshot({ ohlcv_count = 20, include_positions = true
             if (any) {
               var joined = Object.keys(labeled).map(function(k) { return labeled[k]; }).concat(Array.prototype.map.call(cells, function(cell) { return (cell.textContent || '').trim(); })).join(' ').toLowerCase();
               if (/\\b(filled|cancelled|canceled|rejected|expired)\\b/.test(joined)) continue;
+              if (/\\b(buy|sell)\\b/.test(joined) && /\\bmarket\\b/.test(joined) && !/\\b(working|open|active)\\b/.test(joined)) continue;
             }
             if (any) items.push(labeled);
           }
